@@ -67,4 +67,23 @@
                                     } while (0)
 
 
+typedef struct {
+    uint32_t RTR        :1;  //0
+    uint32_t CmdNum     :8;  //8:1
+    uint32_t Target     :8;  //16:9
+    uint32_t rsvd0      :2;  //18:17
+    uint32_t IDE        :1;  //19
+    uint32_t STR        :1;  //20
+    uint32_t Src        :8;  //28:21
+    uint32_t rsvd1      :3;  //31:29
+} stCanId;
+
+typedef union {
+    uint32_t 	all;
+    stCanId     field;
+} tuCanId;
+
+
+
+
 #endif // CAN_APP_H

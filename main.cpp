@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
     char buffer[RD_BUF_SIZE] = {0};
     char wdata[WR_BUF_SIZE] = {0};
     uint16_t length = 0, type = 0;
-    uint32_t address = 0, addr_l = 0, addr_h = 0, base_addr = 0, can_id = 0;
+    uint32_t address = 0, addr_l = 0, addr_h = 0, base_addr = 0, can_id = 0, can_id_rx = 0;
 
     struct option long_options[] = {
         { "help",   no_argument,        0, 'h' },
@@ -77,13 +77,10 @@ int main(int argc, char *argv[])
             break;
         default:
             fprintf(stderr, "Unknown option %c\n", ret);
+            exit(EXIT_FAILURE);
             break;
         }
     }
-
-    Gpio_Init();
-
-    fd_can = Can_Init(dev_name, BITRATE);
 
     // open stream file to read hex file line by line
     if ((fd_hex = open(hex_path, O_RDONLY)) == -1){
@@ -92,17 +89,42 @@ int main(int argc, char *argv[])
     }
     FILE *fp = fdopen(fd_hex, "r");
 
+    Gpio_Init();
+
+    fd_can = CAN_Init(dev_name, BITRATE);
+    if (fd_can <= 0) {
+        perror("CAN_Init() fail\n");
+        exit(EXIT_FAILURE);
+    }
+
+//    do {
+//        can_id = 0xaaaaaaaa;
+//        wdata[0] = 0xdb;
+//        wdata[1] = 0x24;
+//        ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
+//        printf("CAN_SendFrame() send %d bytes for test, id: %x, byte0: %x, byte1: %x\n", ret, can_id, wdata[0], wdata[1]);
+//        sleep(1);
+//    } while (1);
+
     // read charge board status, bl or app
+    WRITE_ID_CMD(can_id, CMD_PING);
+    WRITE_ID_DEST(can_id, CANID_CHARGE);
+    WRITE_ID_SRC(can_id, CANID_MB);
+    can_id |= CAN_EFF_FLAG;
+    printf("can_id is %x\n", can_id);
+    wdata[0] = 0x11;
+    wdata[1] = 0x22;
+    ret = 1;
     do {
-        WRITE_ID_CMD(can_id, CMD_PING);
-        WRITE_ID_DEST(can_id, CANID_CHARGE);
-        WRITE_ID_SRC(can_id, CANID_MB);
-        wdata[0] = 0x11;
-        wdata[1] = 0x22;
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
         printf("send %d bytes to check cb status\n", ret);
-        ret = CAN_RecvFrame(fd_can, &frame_rx, 500);
-    } while (frame_rx.data[0] != 0x01);
+        CAN_RecvFrame(fd_can, &frame_rx, 500);
+        can_id_rx = frame_rx.can_id & CAN_EFF_MASK;
+        if (((stCanId*)&can_id_rx)->Target == CANID_MB &&
+                ((stCanId*)&can_id_rx)->CmdNum == CMD_PING &&
+                frame_rx.data[0] == 0xa5)
+            break;
+    } while (1);
     printf("cb is in bootloader\n");
 
     // if in bl, request to erase app flash area
@@ -110,23 +132,26 @@ int main(int argc, char *argv[])
         WRITE_ID_CMD(can_id, CMD_ERASE);
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5);
         printf("send %d bytes to erase flash\n", ret);
-        ret = CAN_RecvFrame(fd_can, &frame_rx, 5);
-    } while (frame_rx.data[0] != 0x02);
+        CAN_RecvFrame(fd_can, &frame_rx, 5);
+        can_id_rx = frame_rx.can_id & CAN_EFF_MASK;
+        if (((stCanId*)&can_id_rx)->Target == CANID_MB &&
+                ((stCanId*)&can_id_rx)->CmdNum == CMD_ERASE &&
+                frame_rx.data[0] == 0x02)
+            break;
+    } while (1);
     printf("app flash erased\n");
 
     do {
         fgets(buffer, WR_BUF_SIZE, fp);
         if(ferror(fp)) {
             printf("Error read line from hex file\n");
-            clearerr(fp);
-            fclose(fp);
-            exit(EXIT_FAILURE);
+            goto PROGRAM_FAIL;
         }
 
         // read header ":"
         if (*buffer != 58) {
             printf("line sof is not right\n");
-            exit(EXIT_FAILURE);
+            goto PROGRAM_FAIL;
         }
 
         // read length
@@ -190,7 +215,16 @@ int main(int argc, char *argv[])
     printf("reach eof of hex\n");
 
     fclose(fp);
-    Can_DeInit(fd_can);
+    close(fd_hex);
+    CAN_DeInit(fd_can);
+    close(fd_can);
+    exit(EXIT_SUCCESS);
 
-    return 0;
+PROGRAM_FAIL:
+    CAN_DeInit(fd_can);
+    clearerr(fp);
+    fclose(fp);
+    close(fd_hex);
+    close(fd_can);
+    exit(EXIT_FAILURE);
 }

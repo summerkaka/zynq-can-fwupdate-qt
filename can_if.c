@@ -48,7 +48,16 @@ static int WaitTxAvailable(int fd, uint32_t wait_useconds)
 
 static int Phy_Init(void)
 {
-    return Gpio_Pin_Config(9, "out", 0);
+    if (Gpio_Pin_Config(9, "out", 0) < 0) {
+        perror("fail to config CAN phy\n");
+        return -1;
+    }
+    usleep(5000);
+    if (Gpio_Pin_DeConfig(9)) {
+        perror("fail to deconfig CAN phy\n");
+        return -1;
+    }
+    return 0;
 }
 
 int CAN_SendFrame(int fd, uint32_t id, const uint8_t *pdata, uint8_t length, uint16_t timeout_ms)
@@ -105,10 +114,11 @@ int CAN_SendBulk(int fd, uint32_t id, const uint8_t *pdata, uint16_t length, uin
     return CAN_SendFrame(fd, id, ptr, length - (ptr - pdata), 5);
 }
 
-int Can_DeInit(int fd_can)
+int CAN_DeInit(int fd_can)
 {
     if(fd_can != 0)
         close(fd_can);
+
 	return 0;
 }
 
@@ -120,7 +130,7 @@ int Can_DeInit(int fd_can)
  * @return file descriptor of CAN socket if success
  * @return negativ error code if failed
  */
-int Can_Init(const char *name, uint32_t bitrate)
+int CAN_Init(const char *name, uint32_t bitrate)
 {
     int state = 0, ret = 0, fd_can = 0;
     struct sockaddr_can addr;
@@ -160,6 +170,7 @@ int Can_Init(const char *name, uint32_t bitrate)
         return -1;
     }
 
+    // initialize CAN transceiver
     if ((ret = Phy_Init()) < 0) {
         perror("fail to initialize can phy\n");
         return ret;

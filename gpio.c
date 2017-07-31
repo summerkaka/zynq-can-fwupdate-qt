@@ -75,21 +75,28 @@ int Gpio_Pin_Config(int num, char *direction, bool init_value)
         perror("fail to write gpio export\n");
         return ret;
     }
-    usleep(100000);
+    usleep(5000);
 
     // Set out direction
     snprintf(buf, PATH_BUF_SIZE, "/sys/class/gpio/gpio%d/direction", index);
-    printf("%s\n", buf);
     if ((fd = open(buf, O_WRONLY)) < 0) {
         perror("fail to open gpio direction\n");
         return fd;
     }
-    if (strcmp(direction, "out") == 0)
-        write(fd, "out", 3);
-    else if (strcmp(direction, "in") == 0)
-        write(fd, "in", 2);
+    if (strcmp(direction, "out") == 0) {
+        ret = write(fd, "out", 3);
+
+    }else if (strcmp(direction, "in") == 0) {
+        ret = write(fd, "in", 2);
+    }else {
+        perror("invalid direction argument\n");
+        return -1;
+    }
+    if (ret < 0) {
+        printf("fail to set direction of mio%d\n", num);
+    }
     close(fd);
-    usleep(100000);
+    usleep(5000);
 
     // Set GPIO init status
     snprintf(buf, PATH_BUF_SIZE, "/sys/class/gpio/gpio%d/value", index);
@@ -97,11 +104,47 @@ int Gpio_Pin_Config(int num, char *direction, bool init_value)
         perror("fail to open gpio value\n");
         return fd;
     }
-    snprintf(buf, 1, "%d", init_value);
-    ret = write(fd, buf, 1);
+
+    if (init_value == 1) {
+        ret = write(fd, "1", 1);
+    }else if (init_value == 0) {
+        ret = write(fd, "0", 1);
+    }else {
+        printf("wrong mio-gpio%d init value\n", num);
+    }
+    if (ret < 0) {
+        printf("fail to write mio-gpio%d value\n", num);
+    }
     close(fd);
     return ret;
 }
+
+int Gpio_Pin_DeConfig(int num)
+{
+    char buf[PATH_BUF_SIZE] = {0};
+    int fd = 0, ret = 0, index = num + 906;
+#if USE_QTGUI
+    QMessageBox msg;
+#endif
+    //set gpio export
+    if ((fd = open("/sys/class/gpio/unexport", O_WRONLY)) < 0) {
+        perror("fail to open gpio unexport\n");
+#if USE_QTGUI
+        msg.setText("[ERROR] open export fail.");
+        msg.exec();
+#endif
+        return fd;
+    }
+    snprintf(buf, PATH_BUF_SIZE, "%d", index);
+    ret = write(fd, buf, strlen(buf));
+    if (ret < 0) {
+        perror("fail to unexport gpio\n");
+        return ret;
+    }
+    close(fd);
+    return 0;
+}
+
 /**
  * @ingroup extern
  * @brief write output pin value

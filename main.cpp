@@ -2,6 +2,7 @@
 
 #define WR_BUF_SIZE 128
 #define RD_BUF_SIZE 128
+#define FLASHFLAGADDR 0x0801fc00
 
 static void usage_printf(char *prg)
 {
@@ -286,6 +287,25 @@ int main(int argc, char *argv[])
             }
             break;
         case 0x01:
+            WRITE_ID_CMD(can_id, CMD_DLD);
+            WRITE_MSG_LONG(wdata, FLASHFLAGADDR);
+            WRITE_MSG_LONG(wdata + 4, 4);
+            CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 8, 5);
+            WRITE_ID_CMD(can_id, CMD_SENDDATA);
+            WRITE_MSG_LONG(wdata, 0x12345678);
+//            sscanf("12345678", "%2x%2x%2x%2x", &wdata[0], &wdata[1], &wdata[2], &wdata[3]);
+//            sscanf("87654321", "%8x", &wdata[0];
+            CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 4, 5);
+            ret = CAN_RecvFrame(fd_can, &frame_rx, 20);
+            if (ret > 0 &&
+                    ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_SENDDATA &&
+                    frame_rx.data[0] == 0x00) {
+                printf("write to valid falg succeed\n");
+            }else {
+                goto PROGRAM_FAIL;
+            }
+
             WRITE_ID_CMD(can_id, CMD_JUMPTOAPP);
             if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0) {
                 printf("send command to jump to application\n");

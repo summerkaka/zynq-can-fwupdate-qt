@@ -35,9 +35,9 @@
                         *(uint16_t*)(ptr)
 
 #define WRITE_MSG_LONG(ptr, value)  do {*(uint8_t *)(ptr)       = (value) >> 24; \
-                                        *(uint8_t *)((ptr) + 1) = (value) >> 16; \
-                                        *(uint8_t *)((ptr) + 2) = (value) >> 8;  \
-                                        *(uint8_t *)((ptr) + 3) = (value);       \
+                                        *(uint8_t *)((ptr) + 1) = (value) >> 16 & 0xff; \
+                                        *(uint8_t *)((ptr) + 2) = (value) >> 8 & 0xff;  \
+                                        *(uint8_t *)((ptr) + 3) = (value) & 0xff;       \
                                     } while (0)
 
 #define WRITE_MSG_WORD(ptr, value)  do {*(uint8_t *)(ptr)       = (value) >> 8; \

@@ -60,6 +60,17 @@ static int Phy_Init(void)
     return 0;
 }
 
+/**
+ * @ingroup extern
+ * @brief send a single can_frame via socketcan
+ * @param fd : file descriptor of can socket
+ * @param id : can_iendentifier
+ * @param *pdata : pointer to can frame payload data buffer
+ * @param length : length of payload
+ * @param timeout : timeout setting for send
+ * @return sizeof(struct can_frame) if success
+ * @return negativ if failed
+ */
 int CAN_SendFrame(int fd, uint32_t id, const uint8_t *pdata, uint8_t length, uint16_t timeout_ms)
 {
     if (length > 8) {
@@ -74,6 +85,7 @@ int CAN_SendFrame(int fd, uint32_t id, const uint8_t *pdata, uint8_t length, uin
     memcpy(&frame.data[0], pdata, length);
     frame.can_dlc = length;
     ret = WaitTxAvailable(fd, timeout_ms * 1000);
+    usleep(5000);       // for slow response usb-can adaptor to capture packet
     if(ret <= 0) {
         printf("CAN_Send() wait-available error\n");
         return -1;
@@ -82,6 +94,15 @@ int CAN_SendFrame(int fd, uint32_t id, const uint8_t *pdata, uint8_t length, uin
     }
 }
 
+/**
+ * @ingroup extern
+ * @brief receive a single can_frame via socketcan
+ * @param fd : file descriptor of can socket
+ * @param *pframe : contrainer of received frame
+ * @param timeout : timeout setting for send
+ * @return sizeof(struct can_frame) if success
+ * @return negativ if failed
+ */
 int CAN_RecvFrame(int fd, struct can_frame *pframe, uint16_t timeout_ms)
 {
     int ret = 0;
@@ -174,8 +195,11 @@ int CAN_Init(const char *name, uint32_t bitrate)
     if ((ret = Phy_Init()) < 0) {
         perror("fail to initialize can phy\n");
         return ret;
+    }else {
+        printf("phy init ok\n");
     }
 
+    // open can socket
     if((fd_can = socket(PF_CAN, SOCK_RAW, CAN_RAW)) < 0) {
         perror("Error opening socket");
         return ret;

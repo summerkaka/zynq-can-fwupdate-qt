@@ -15,7 +15,7 @@ void Gpio_Init(void)
 
     //open /dev/mem with read and write mode
     if((memfd0 = open ("/dev/mem", O_RDWR)) < 0){
-        printf("fail to open /dev/mem\n");
+        perror("fail to open /dev/mem\n");
 #if USE_QTGUI
         msg.setText("[ERROR] Can't open /dev/mem.");
         msg.exec();
@@ -25,7 +25,7 @@ void Gpio_Init(void)
     mem0 = (long*)mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, memfd0, 0xf8000000);
 
     if (mem0 == MAP_FAILED) {
-        printf("mmap faile\n");
+        perror("mmap faile\n");
 #if USE_QTGUI
         msg.setText("[ERROR] mmap mem0 error.");
         msg.exec();

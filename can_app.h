@@ -12,8 +12,9 @@
 #define CMD_SENDDATA    0x02
 #define CMD_REQUEST     0x03
 #define CMD_RESET       0x05
-#define CMD_JUMPTOAPP   0x10
-#define CMD_JUMPTOBL    0x11
+#define CMD_JUMPTOAPP   0xab
+#define CMD_JUMPTOBL    0xac
+#define CMD_UNLOCK      0xad
 #define CMD_ERASE       0xae
 #define CMD_CHECK_STS   0xaf
 
@@ -65,6 +66,8 @@
 #define WRITE_ID_SRC(id, value)     do {id &= ~((uint32_t)0xff << SRC_SHIFT);   \
                                         id |= value << SRC_SHIFT;               \
                                     } while (0)
+
+#define IDE_FLAG    0x00080000u
 
 
 typedef struct {

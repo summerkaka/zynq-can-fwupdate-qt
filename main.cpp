@@ -15,7 +15,7 @@ static void usage_printf(char *prg)
         prg);
 }
 
-uint16_t ASC2Hex(char *p_ascii)
+static uint16_t ASC2Hex(const char *p_ascii)
 {
     uint16_t result, h_byte, l_byte;
 
@@ -49,14 +49,13 @@ int main(int argc, char *argv[])
     
     //    return a.exec();
 
-    int fd_can = 0, fd_hex = 0, ret = 0, i = 0;
+    int fd_can = 0, fd_hex = 0, ret = 0, line_num;
     struct can_frame frame_rx;
     char *dev_name;
     char *hex_path;
     char buffer[RD_BUF_SIZE] = {0};
     char wdata[WR_BUF_SIZE] = {0};
-    uint16_t length = 0, type = 0;
-    uint32_t address = 0, addr_l = 0, addr_h = 0, base_addr = 0, can_id = 0, can_id_rx = 0;
+    uint32_t address = 0, addr_l = 0, addr_h = 0, base_addr = 0, can_id = 0, length = 0, type = 0, i = 0;
 
     struct option long_options[] = {
         { "help",   no_argument,        0, 'h' },
@@ -84,7 +83,7 @@ int main(int argc, char *argv[])
 
     // open stream file to read hex file line by line
     if ((fd_hex = open(hex_path, O_RDONLY)) == -1){
-        printf("hex file open failed\n");
+        perror("hex file open failed\n");
         exit(EXIT_FAILURE);
     }
     FILE *fp = fdopen(fd_hex, "r");
@@ -106,43 +105,97 @@ int main(int argc, char *argv[])
 //        sleep(1);
 //    } while (1);
 
-    // read charge board status, bl or app
+    // read charge board status, request to jump to bl if it's in app
     WRITE_ID_CMD(can_id, CMD_PING);
     WRITE_ID_DEST(can_id, CANID_CHARGE);
     WRITE_ID_SRC(can_id, CANID_MB);
+    can_id |= IDE_FLAG;
     can_id |= CAN_EFF_FLAG;
     printf("can_id is %x\n", can_id);
     wdata[0] = 0x11;
     wdata[1] = 0x22;
     ret = 1;
+    i = 0;
     do {
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
         printf("send %d bytes to check cb status\n", ret);
-        CAN_RecvFrame(fd_can, &frame_rx, 500);
-        can_id_rx = frame_rx.can_id & CAN_EFF_MASK;
-        if (((stCanId*)&can_id_rx)->Target == CANID_MB &&
-                ((stCanId*)&can_id_rx)->CmdNum == CMD_PING &&
-                frame_rx.data[0] == 0xa5)
-            break;
-    } while (1);
-    printf("cb is in bootloader\n");
+        if (CAN_RecvFrame(fd_can, &frame_rx, 500) > 0) {
+            if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_PING &&
+                    frame_rx.data[0] == 0x00)
+                break;
+        }else {
+            i++;
+            usleep(5000);
+        }
+    } while (i < 3);
+    if (i >= 3) {
+        printf("cb no respond to status check\n");
+        goto PROGRAM_FAIL;
+    }
+    if (frame_rx.data[0] != 0x00) {
+        printf("cb is in app mode, request to jump to bl....\n");
+        WRITE_ID_CMD(can_id, CMD_JUMPTOBL);
+        if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0) {
+            sleep(5);
+        }else {
+            perror("fail to send request to jump to bl\n");
+            goto PROGRAM_FAIL;
+        }
+    }else
+        printf("cb is in bootloader\n");
+
+    // if in bl, request to unlock flash first.
+    WRITE_ID_CMD(can_id, CMD_UNLOCK);
+    i = 0;
+    do {
+        ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
+            printf("send %d bytes to unlock flash\n", ret);
+        if (CAN_RecvFrame(fd_can, &frame_rx, 500) > 0) {
+            if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_UNLOCK &&
+                    frame_rx.data[0] == 0x00)
+                break;
+        }else {
+            i++;
+            usleep(5000);
+        }
+    } while (i < 3);
+    if (i < 3) {
+        printf("flash is unlocked\n");
+    }else {
+        printf("cb no respond to flash unlock\n");
+        goto PROGRAM_FAIL;
+    }
 
     // if in bl, request to erase app flash area
+    WRITE_ID_CMD(can_id, CMD_ERASE);
+    i = 0;
     do {
-        WRITE_ID_CMD(can_id, CMD_ERASE);
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5);
         printf("send %d bytes to erase flash\n", ret);
-        CAN_RecvFrame(fd_can, &frame_rx, 5);
-        can_id_rx = frame_rx.can_id & CAN_EFF_MASK;
-        if (((stCanId*)&can_id_rx)->Target == CANID_MB &&
-                ((stCanId*)&can_id_rx)->CmdNum == CMD_ERASE &&
-                frame_rx.data[0] == 0x02)
-            break;
-    } while (1);
-    printf("app flash erased\n");
+        if (CAN_RecvFrame(fd_can, &frame_rx, 10000) > 0) {
+            if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_ERASE &&
+                    frame_rx.data[0] == 0x00)
+                break;
+        }else {
+            i++;
+            usleep(5000);
+        }
+    } while (i < 3);
+    if (i < 3) {
+        printf("app flash erased\n");
+    }else {
+        printf("cb no respond to flash erase\n");
+        goto PROGRAM_FAIL;
+    }
 
+    // read hex file line by line to program flash
+    line_num = 0;
     do {
         fgets(buffer, WR_BUF_SIZE, fp);
+        printf("line %d: %s", line_num++, buffer);
         if(ferror(fp)) {
             printf("Error read line from hex file\n");
             goto PROGRAM_FAIL;
@@ -155,17 +208,22 @@ int main(int argc, char *argv[])
         }
 
         // read length
-        length = ASC2Hex(&buffer[1]);
+//        length = ASC2Hex(&buffer[1]);
+        sscanf(&buffer[1], "%2x", &length);
         printf("length is %d, ", length);
 
         // read address
-        addr_h = ASC2Hex(&buffer[3]);
-        addr_l = ASC2Hex(&buffer[5]);
-        address = (addr_h << 8) + addr_l + base_addr;
+//        addr_h = ASC2Hex(&buffer[3]);
+//        addr_l = ASC2Hex(&buffer[5]);
+        sscanf(&buffer[3], "%4x", &address);
+//        sscanf(&buffer[5], "%2x", &addr_l);
+//        address = (addr_h << 8) + addr_l + base_addr;
+        address += base_addr;
         printf("address is %x, ", address);
 
         // read  type
-        type = ASC2Hex(&buffer[7]);
+//        type = ASC2Hex(&buffer[7]);
+        sscanf(&buffer[7], "%2x", &type);
         printf("type is %d\n", type);
 
         switch(type) {
@@ -174,44 +232,101 @@ int main(int argc, char *argv[])
             WRITE_ID_CMD(can_id, CMD_DLD);
             WRITE_MSG_LONG(wdata, address);
             WRITE_MSG_LONG(wdata + 4, length);
-            ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 8, 5);
-            printf("send %d bytes DLD command \n", ret);
-            ret = CAN_RecvFrame(fd_can, &frame_rx, 5);
+            if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 8, 5) > 0)
+                printf("send DLD command, length is %d, address is %x\n", length, address);
+            else {
+                perror("fail to send DLD command");
+                goto PROGRAM_FAIL;
+            }
+            if (CAN_RecvFrame(fd_can, &frame_rx, 5) > 0) {
+                if (((stCanId*)&frame_rx.can_id)->Target != CANID_MB ||
+                        ((stCanId*)&frame_rx.can_id)->CmdNum != CMD_DLD ||
+                        frame_rx.data[0] != 0x00) {
+                    perror("no ack to DLD command\n");
+                    goto PROGRAM_FAIL;
+                }
+            }
 
             // send data
+            WRITE_ID_CMD(can_id, CMD_SENDDATA);
             for (i = 0; i < length; i++) {
                 wdata[i] = ASC2Hex(buffer + 2*i + 9);
             }
             for (i = 0; i < length; ) {
                 if (length - i >= 8) {
-                    ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 8, 5);
-                    i += 8;
-                    printf("send %d bytes to program flash\n", ret);
-                    ret = CAN_RecvFrame(fd_can, &frame_rx, 5);
-                }else if (length - i == 4) {
-                    ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 4, 5);
-                    i += 4;
-                    printf("send %d bytes to program flash\n", ret);
-                    ret = CAN_RecvFrame(fd_can, &frame_rx, 5);
+                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 8, 5) > 0) {
+                        i += 8;
+                        printf("send 8 bytes to program flash\n");
+                    }
+                }else if (length - i >= 4) {
+                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 4, 5) > 0) {
+                        i += 4;
+                        printf("send 4 bytes to program flash\n");
+                    }
+                }else if (length - i >= 2) {
+                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 2, 5) > 0) {
+                        i += 2;
+                        printf("send 2 bytes to program flash\n");
+                    }
+                }else {
+                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 1, 5) > 0) {
+                        i += 1;
+                        printf("send 1 bytes to program flash\n");
+                    }
+                }
+                if (CAN_RecvFrame(fd_can, &frame_rx, 20) < 0 ) {
+                    printf("fail to program flash\n");
+                    goto PROGRAM_FAIL;
+                }else if (((stCanId*)&frame_rx.can_id)->Target != CANID_MB ||
+                          ((stCanId*)&frame_rx.can_id)->CmdNum != CMD_SENDDATA ||
+                          frame_rx.data[0] != 0x00) {
+                    printf("fail to program flash\n");
+                    goto PROGRAM_FAIL;
                 }
             }
             break;
         case 0x01:
             WRITE_ID_CMD(can_id, CMD_JUMPTOAPP);
-            ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5);
+            if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0) {
+                printf("send command to jump to application\n");
+                ret = CAN_RecvFrame(fd_can, &frame_rx, 20);
+                if (ret > 0 &&
+                        ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                        ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_JUMPTOAPP &&
+                        frame_rx.data[0] == 0x00) {
+                    printf("cb is jumping to application...\n");
+                }
+            }
             break;
         case 0x02:
             break;
         case 0x03:
             break;
         case 0x04:
-            memcpy(wdata, buffer+9, 4);
-            wdata[4] = '\0';
-            base_addr = atoi(wdata) << 16;
+            snprintf(wdata, 3, buffer+9);
+            addr_h = atoi(wdata);
+            snprintf(wdata, 3, buffer+11);
+            addr_l = atoi(wdata);
+            address = (addr_h << 8) + addr_l;
+            base_addr = address << 16;
+            address = 0;
+            addr_l = 0;
+            addr_h = 0;
+            printf("base_address is %x\n", base_addr);
+            break;
+        case 0x05:
+            WRITE_ID_CMD(can_id, CMD_JUMPTOAPP);
+//            sscanf(&buffer[9], "%8x", address);
+            for (i = 0; i < length; i++)
+                wdata[i] = ASC2Hex(buffer + 2*i + 9);
+//            if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 8, 5) > 0) {
+//                printf("app jump address is %x %x %x %x, ", wdata[0], wdata[1], wdata[2], wdata[3]);
+//                printf("request to jump to app...\n");
+//            }
             break;
         default : break;
         }
-    } while (feof(fp));
+    } while (!feof(fp) && type != 0x01);
     printf("reach eof of hex\n");
 
     fclose(fp);

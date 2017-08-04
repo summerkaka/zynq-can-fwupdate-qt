@@ -51,6 +51,7 @@ int main(int argc, char *argv[])
     //    return a.exec();
 
     int fd_can = 0, fd_hex = 0, ret = 0, line_num;
+    uint8_t send_dlc = 0;
     struct can_frame frame_rx;
     char *dev_name;
     char *hex_path;
@@ -97,61 +98,61 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-//    do {
-//        can_id = 0xaaaaaaaa;
-//        wdata[0] = 0xdb;
-//        wdata[1] = 0x24;
-//        ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
-//        printf("CAN_SendFrame() send %d bytes for test, id: %x, byte0: %x, byte1: %x\n", ret, can_id, wdata[0], wdata[1]);
-//        sleep(1);
-//    } while (1);
-
     // read charge board status, request to jump to bl if it's in app
-    WRITE_ID_CMD(can_id, CMD_PING);
     WRITE_ID_DEST(can_id, CANID_CHARGE);
     WRITE_ID_SRC(can_id, CANID_MB);
     can_id |= IDE_FLAG;
     can_id |= CAN_EFF_FLAG;
-    printf("can_id is %x\n", can_id);
-    wdata[0] = 0x11;
-    wdata[1] = 0x22;
-    ret = 1;
+    ret = 0;
     i = 0;
     do {
-        ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
-        printf("send %d bytes to check cb status\n", ret);
-        if (CAN_RecvFrame(fd_can, &frame_rx, 500) > 0) {
-            if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
-                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_PING &&
-                    frame_rx.data[0] == 0x00)
-                break;
+        WRITE_ID_CMD(can_id, CMD_PING);
+        if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0)
+            printf("send request to cb status\n");
+        else {
+            perror("fail to check cb status\n");
+            goto PROGRAM_FAIL;
+        }
+        if (CAN_RecvFrame(fd_can, &frame_rx, 5) < 0 ||
+                ((stCanId*)&frame_rx.can_id)->Target != CANID_MB ||
+                ((stCanId*)&frame_rx.can_id)->CmdNum != CMD_PING) {
+            perror("no response to check status\n");
+            goto PROGRAM_FAIL;
+        }
+        if (frame_rx.data[0] == 0x00) {
+            printf("cb is in bootloader\n");
+            break;
+        }else
+            printf("cb is in app mode\n");
+
+        WRITE_ID_CMD(can_id, CMD_JUMPTOBL);
+        if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) < 0) {
+            perror("fail to send request to jump to bl\n");
+            goto PROGRAM_FAIL;
+        }else
+            printf("request sent to jump to bl\n");
+        if (CAN_RecvFrame(fd_can, &frame_rx, 5) < 0 ||
+                ((stCanId*)&frame_rx.can_id)->Target != CANID_MB ||
+                ((stCanId*)&frame_rx.can_id)->CmdNum != CMD_JUMPTOBL) {
+            perror("no response to jump to bl\n");
+            goto PROGRAM_FAIL;
         }else {
             i++;
-            usleep(5000);
+            printf("cb is jumping to bl......\n");
+            sleep(5);
         }
     } while (i < 3);
     if (i >= 3) {
-        printf("cb no respond to status check\n");
+        printf("fail to jump to bl\n");
         goto PROGRAM_FAIL;
     }
-    if (frame_rx.data[0] != 0x00) {
-        printf("cb is in app mode, request to jump to bl....\n");
-        WRITE_ID_CMD(can_id, CMD_JUMPTOBL);
-        if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0) {
-            sleep(5);
-        }else {
-            perror("fail to send request to jump to bl\n");
-            goto PROGRAM_FAIL;
-        }
-    }else
-        printf("cb is in bootloader\n");
 
     // if in bl, request to unlock flash first.
     WRITE_ID_CMD(can_id, CMD_UNLOCK);
     i = 0;
     do {
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
-            printf("send %d bytes to unlock flash\n", ret);
+        printf("send %d bytes to unlock flash\n", ret);
         if (CAN_RecvFrame(fd_can, &frame_rx, 500) > 0) {
             if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
                     ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_UNLOCK &&
@@ -254,27 +255,10 @@ int main(int argc, char *argv[])
                 wdata[i] = ASC2Hex(buffer + 2*i + 9);
             }
             for (i = 0; i < length; ) {
-                if (length - i >= 8) {
-                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 8, 5) > 0) {
-                        i += 8;
-                        printf("send 8 bytes to program flash\n");
-                    }
-                }else if (length - i >= 4) {
-                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 4, 5) > 0) {
-                        i += 4;
-                        printf("send 4 bytes to program flash\n");
-                    }
-                }else if (length - i >= 2) {
-                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 2, 5) > 0) {
-                        i += 2;
-                        printf("send 2 bytes to program flash\n");
-                    }
-                }else {
-                    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 1, 5) > 0) {
-                        i += 1;
-                        printf("send 1 bytes to program flash\n");
-                    }
-                }
+                send_dlc = (length - i >= 8) ? 8 : length - i;
+                    ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], send_dlc, 5);
+                if (ret > 0)
+                    i += send_dlc; 
                 if (CAN_RecvFrame(fd_can, &frame_rx, 20) < 0 ) {
                     printf("fail to program flash\n");
                     goto PROGRAM_FAIL;
@@ -283,7 +267,8 @@ int main(int argc, char *argv[])
                           frame_rx.data[0] != 0x00) {
                     printf("fail to program flash\n");
                     goto PROGRAM_FAIL;
-                }
+                }else
+                    printf("%d bytes has been programmed to flash\n", send_dlc);
             }
             break;
         case 0x01:
@@ -291,18 +276,30 @@ int main(int argc, char *argv[])
             WRITE_MSG_LONG(wdata, FLASHFLAGADDR);
             WRITE_MSG_LONG(wdata + 4, 4);
             CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 8, 5);
+            if (CAN_RecvFrame(fd_can, &frame_rx, 5) > 0) {
+                if (((stCanId*)&frame_rx.can_id)->Target != CANID_MB ||
+                        ((stCanId*)&frame_rx.can_id)->CmdNum != CMD_DLD ||
+                        frame_rx.data[0] != 0x00) {
+                    perror("fail to init flash valid flag\n");
+                    goto PROGRAM_FAIL;
+                }
+            }else
+                printf("succeed to init valid flag\n");
             WRITE_ID_CMD(can_id, CMD_SENDDATA);
             WRITE_MSG_LONG(wdata, 0x12345678);
 //            sscanf("12345678", "%2x%2x%2x%2x", &wdata[0], &wdata[1], &wdata[2], &wdata[3]);
 //            sscanf("87654321", "%8x", &wdata[0];
             CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 4, 5);
-            ret = CAN_RecvFrame(fd_can, &frame_rx, 20);
+            sleep(1);
+            ret = CAN_RecvFrame(fd_can, &frame_rx, 5);
             if (ret > 0 &&
                     ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
                     ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_SENDDATA &&
                     frame_rx.data[0] == 0x00) {
-                printf("write to valid falg succeed\n");
+                printf("write to valid flag succeed \n");
             }else {
+                printf("fail to write valid flag into flash, return: %d, target: %x, cmdnum: %x, data: %x\n",
+                       ret, ((stCanId*)&frame_rx.can_id)->Target, ((stCanId*)&frame_rx.can_id)->CmdNum, frame_rx.data[0]);
                 goto PROGRAM_FAIL;
             }
 
@@ -327,11 +324,7 @@ int main(int argc, char *argv[])
             addr_h = atoi(wdata);
             snprintf(wdata, 3, buffer+11);
             addr_l = atoi(wdata);
-            address = (addr_h << 8) + addr_l;
-            base_addr = address << 16;
-            address = 0;
-            addr_l = 0;
-            addr_h = 0;
+            base_addr = ((addr_h << 8) + addr_l) << 16;
             printf("base_address is %x\n", base_addr);
             break;
         case 0x05:

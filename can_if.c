@@ -90,7 +90,9 @@ int CAN_SendFrame(int fd, uint32_t id, const uint8_t *pdata, uint8_t length, uin
         printf("CAN_Send() wait-available error\n");
         return -1;
     }else {
-        return write(fd, &frame, sizeof(frame));
+        if ((ret = write(fd, &frame, sizeof(frame))) < 0)
+            perror("cansocket: negative to send out\n");
+        return ret;
     }
 }
 
@@ -112,7 +114,9 @@ int CAN_RecvFrame(int fd, struct can_frame *pframe, uint16_t timeout_ms)
         printf("CAN_Receive() wait-available error\n");
         return -1;
     }else {
-        return read(fd, pframe, sizeof(struct can_frame));
+        if ((ret = read(fd, pframe, sizeof(struct can_frame))) < 0)
+            perror("cansocket: negative to receive\n");
+        return ret;
     }
 }
 

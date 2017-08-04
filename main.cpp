@@ -53,19 +53,24 @@ int main(int argc, char *argv[])
     int fd_can = 0, fd_hex = 0, ret = 0, line_num;
     uint8_t send_dlc = 0;
     struct can_frame frame_rx;
+    uint8_t target_id = 0;
+    char can_device_name[] = "can0";
     char *dev_name;
     char *hex_path;
     char buffer[RD_BUF_SIZE] = {0};
     char wdata[WR_BUF_SIZE] = {0};
     uint32_t address = 0, addr_l = 0, addr_h = 0, base_addr = 0, can_id = 0, length = 0, type = 0, i = 0;
-
     struct option long_options[] = {
         { "help",   no_argument,        0, 'h' },
         { "dev",    required_argument,  0, 'd' },
         { "file",   required_argument,  0, 'f' },
+        { "target", required_argument,  0, 't' }
     };
 
-    while ((ret = getopt_long(argc, argv, "hd:f:", long_options, NULL)) != -1) {
+    dev_name = can_device_name;
+    target_id = 0;
+
+    while ((ret = getopt_long(argc, argv, "hd:f:t:", long_options, NULL)) != -1) {
         switch (ret) {
         case 'h':
             usage_printf(basename(argv[0]));
@@ -76,11 +81,22 @@ int main(int argc, char *argv[])
         case 'f':
             hex_path = optarg;
             break;
+        case 't':
+            if (strcmp(optarg, "cb") == 0) {
+                target_id = CANID_CHARGE;
+            }else if (strcmp(optarg, "pump") == 0) {
+                target_id = CANID_PUMP;
+            }
+            break;
         default:
             fprintf(stderr, "Unknown option %c\n", ret);
             exit(EXIT_FAILURE);
             break;
         }
+    }
+    if (target_id == 0) {
+        perror("fw update target is not input\n");
+        exit(EXIT_FAILURE);
     }
 
     // open stream file to read hex file line by line
@@ -99,7 +115,7 @@ int main(int argc, char *argv[])
     }
 
     // read charge board status, request to jump to bl if it's in app
-    WRITE_ID_DEST(can_id, CANID_CHARGE);
+    WRITE_ID_DEST(can_id, target_id);
     WRITE_ID_SRC(can_id, CANID_MB);
     can_id |= IDE_FLAG;
     can_id |= CAN_EFF_FLAG;
@@ -210,21 +226,15 @@ int main(int argc, char *argv[])
         }
 
         // read length
-//        length = ASC2Hex(&buffer[1]);
         sscanf(&buffer[1], "%2x", &length);
         printf("length is %d, ", length);
 
         // read address
-//        addr_h = ASC2Hex(&buffer[3]);
-//        addr_l = ASC2Hex(&buffer[5]);
         sscanf(&buffer[3], "%4x", &address);
-//        sscanf(&buffer[5], "%2x", &addr_l);
-//        address = (addr_h << 8) + addr_l + base_addr;
         address += base_addr;
         printf("address is %x, ", address);
 
         // read  type
-//        type = ASC2Hex(&buffer[7]);
         sscanf(&buffer[7], "%2x", &type);
         printf("type is %d\n", type);
 
@@ -287,8 +297,6 @@ int main(int argc, char *argv[])
                 printf("succeed to init valid flag\n");
             WRITE_ID_CMD(can_id, CMD_SENDDATA);
             WRITE_MSG_LONG(wdata, 0x12345678);
-//            sscanf("12345678", "%2x%2x%2x%2x", &wdata[0], &wdata[1], &wdata[2], &wdata[3]);
-//            sscanf("87654321", "%8x", &wdata[0];
             CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 4, 5);
             sleep(1);
             ret = CAN_RecvFrame(fd_can, &frame_rx, 5);
@@ -328,14 +336,6 @@ int main(int argc, char *argv[])
             printf("base_address is %x\n", base_addr);
             break;
         case 0x05:
-            WRITE_ID_CMD(can_id, CMD_JUMPTOAPP);
-//            sscanf(&buffer[9], "%8x", address);
-            for (i = 0; i < length; i++)
-                wdata[i] = ASC2Hex(buffer + 2*i + 9);
-//            if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], 8, 5) > 0) {
-//                printf("app jump address is %x %x %x %x, ", wdata[0], wdata[1], wdata[2], wdata[3]);
-//                printf("request to jump to app...\n");
-//            }
             break;
         default : break;
         }

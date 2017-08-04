@@ -5,6 +5,7 @@
 #define BITRATE         1000000
 
 #define CANID_CHARGE    0x11
+#define CANID_PUMP      0x12
 #define CANID_MB        0x21
 
 #define CMD_PING        0x00

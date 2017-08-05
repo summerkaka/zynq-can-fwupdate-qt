@@ -60,6 +60,7 @@ int main(int argc, char *argv[])
     char buffer[RD_BUF_SIZE] = {0};
     char wdata[WR_BUF_SIZE] = {0};
     uint32_t address = 0, addr_l = 0, addr_h = 0, base_addr = 0, can_id = 0, length = 0, type = 0, i = 0;
+    uint32_t flash_start = 0, flash_end = 0;
     struct option long_options[] = {
         { "help",   no_argument,        0, 'h' },
         { "dev",    required_argument,  0, 'd' },
@@ -68,7 +69,6 @@ int main(int argc, char *argv[])
     };
 
     dev_name = can_device_name;
-    target_id = 0;
 
     while ((ret = getopt_long(argc, argv, "hd:f:t:", long_options, NULL)) != -1) {
         switch (ret) {
@@ -163,15 +163,34 @@ int main(int argc, char *argv[])
         goto PROGRAM_FAIL;
     }
 
-    // if in bl, request to unlock flash first.
-    WRITE_ID_CMD(can_id, CMD_UNLOCK);
+    // ask target MCU flash area of application, hex file base_address is compared with the area
+    WRITE_ID_CMD(can_id, CMD_ASK_APPAREA);
+    if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0) {
+        printf("send command to ask app flash area\n");
+        ret = CAN_RecvFrame(fd_can, &frame_rx, 20);
+        if (ret > 0 &&
+                ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_ASK_APPAREA) {
+            flash_start = GetLongH(frame_rx.data);
+            flash_end = GetLongH(&frame_rx.data[4]);
+            printf("flash start address: %x, end address: %x\n", flash_start, flash_end);
+        }else {
+            printf("fail to get flash area\n");
+        }
+    }else {
+        perror("fail to send command to get flash area\n");
+        goto PROGRAM_FAIL;
+    }
+
+    // send 'program start' to tell mcu to release flash protection.
+    WRITE_ID_CMD(can_id, CMD_PROGRAM_START);
     i = 0;
     do {
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
         printf("send %d bytes to unlock flash\n", ret);
         if (CAN_RecvFrame(fd_can, &frame_rx, 500) > 0) {
             if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
-                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_UNLOCK &&
+                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_PROGRAM_START &&
                     frame_rx.data[0] == 0x00)
                 break;
         }else {
@@ -180,32 +199,9 @@ int main(int argc, char *argv[])
         }
     } while (i < 3);
     if (i < 3) {
-        printf("flash is unlocked\n");
+        printf("flash is prepared\n");
     }else {
-        printf("cb no respond to flash unlock\n");
-        goto PROGRAM_FAIL;
-    }
-
-    // if in bl, request to erase app flash area
-    WRITE_ID_CMD(can_id, CMD_ERASE);
-    i = 0;
-    do {
-        ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5);
-        printf("send %d bytes to erase flash\n", ret);
-        if (CAN_RecvFrame(fd_can, &frame_rx, 10000) > 0) {
-            if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
-                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_ERASE &&
-                    frame_rx.data[0] == 0x00)
-                break;
-        }else {
-            i++;
-            usleep(5000);
-        }
-    } while (i < 3);
-    if (i < 3) {
-        printf("app flash erased\n");
-    }else {
-        printf("cb no respond to flash erase\n");
+        printf("cb no respond to start program\n");
         goto PROGRAM_FAIL;
     }
 
@@ -242,8 +238,8 @@ int main(int argc, char *argv[])
         case 0x00:
             // send start address and data length first
             WRITE_ID_CMD(can_id, CMD_DLD);
-            WRITE_MSG_LONG(wdata, address);
-            WRITE_MSG_LONG(wdata + 4, length);
+            WriteLongH(wdata, address);
+            WriteLongH(wdata + 4, length);
             if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 8, 5) > 0)
                 printf("send DLD command, length is %d, address is %x\n", length, address);
             else {
@@ -282,35 +278,36 @@ int main(int argc, char *argv[])
             }
             break;
         case 0x01:
-            WRITE_ID_CMD(can_id, CMD_DLD);
-            WRITE_MSG_LONG(wdata, FLASHFLAGADDR);
-            WRITE_MSG_LONG(wdata + 4, 4);
-            CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 8, 5);
-            if (CAN_RecvFrame(fd_can, &frame_rx, 5) > 0) {
-                if (((stCanId*)&frame_rx.can_id)->Target != CANID_MB ||
-                        ((stCanId*)&frame_rx.can_id)->CmdNum != CMD_DLD ||
-                        frame_rx.data[0] != 0x00) {
-                    perror("fail to init flash valid flag\n");
-                    goto PROGRAM_FAIL;
-                }
-            }else
-                printf("succeed to init valid flag\n");
-            WRITE_ID_CMD(can_id, CMD_SENDDATA);
-            WRITE_MSG_LONG(wdata, 0x12345678);
+            WRITE_ID_CMD(can_id, CMD_WRITECRC);
+            WriteLongL(wdata, 0x12345678);
             CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 4, 5);
-            sleep(1);
-            ret = CAN_RecvFrame(fd_can, &frame_rx, 5);
+            ret = CAN_RecvFrame(fd_can, &frame_rx, 10);
             if (ret > 0 &&
                     ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
-                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_SENDDATA &&
+                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_WRITECRC &&
                     frame_rx.data[0] == 0x00) {
-                printf("write to valid flag succeed \n");
+                printf("write CRC to MCU flash succeed \n");
             }else {
-                printf("fail to write valid flag into flash, return: %d, target: %x, cmdnum: %x, data: %x\n",
-                       ret, ((stCanId*)&frame_rx.can_id)->Target, ((stCanId*)&frame_rx.can_id)->CmdNum, frame_rx.data[0]);
+                printf("fail to write CRC into flash, \n");
                 goto PROGRAM_FAIL;
             }
-
+            WRITE_ID_CMD(can_id, CMD_PROGRAM_END);
+            if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0) {
+                printf("send command to end flash program\n");
+                ret = CAN_RecvFrame(fd_can, &frame_rx, 20);
+                if (ret > 0 &&
+                        ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                        ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_PROGRAM_END &&
+                        frame_rx.data[0] == 0x00) {
+                    printf("target flash is locked...\n");
+                }else {
+                    perror("target lock flash fail\n");
+                    goto PROGRAM_FAIL;
+                }
+            }else {
+                perror("fail to send command to lock flash\n");
+                goto PROGRAM_FAIL;
+            }
             WRITE_ID_CMD(can_id, CMD_JUMPTOAPP);
             if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0) {
                 printf("send command to jump to application\n");
@@ -321,6 +318,9 @@ int main(int argc, char *argv[])
                         frame_rx.data[0] == 0x00) {
                     printf("cb is jumping to application...\n");
                 }
+            }else {
+                perror("fail to send command to jump to app\n");
+                goto PROGRAM_FAIL;
             }
             break;
         case 0x02:
@@ -334,6 +334,10 @@ int main(int argc, char *argv[])
             addr_l = atoi(wdata);
             base_addr = ((addr_h << 8) + addr_l) << 16;
             printf("base_address is %x\n", base_addr);
+            if (base_addr != flash_start) {
+                printf("wrong hex file\n");
+                goto PROGRAM_FAIL;
+            }
             break;
         case 0x05:
             break;

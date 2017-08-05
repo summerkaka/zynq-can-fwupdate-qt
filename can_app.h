@@ -13,36 +13,48 @@
 #define CMD_SENDDATA    0x02
 #define CMD_REQUEST     0x03
 #define CMD_RESET       0x05
+#define CMD_ASK_APPAREA 0xaa
 #define CMD_JUMPTOAPP   0xab
 #define CMD_JUMPTOBL    0xac
-#define CMD_UNLOCK      0xad
-#define CMD_ERASE       0xae
-#define CMD_CHECK_STS   0xaf
+#define CMD_WRITECRC    0xad
+#define CMD_PROGRAM_START   0xae
+#define CMD_PROGRAM_END     0xaf
 
-#define GETLONG_H(ptr)  *(uint32_t*)(ptr)       << 24 | \
+#define GetLongH(ptr)  *(uint32_t*)(ptr)       << 24 | \
                         *(uint32_t*)((ptr) + 1) << 16 | \
                         *(uint32_t*)((ptr) + 2) << 8  | \
                         *(uint32_t*)((ptr) + 3)
 
-#define GETLONG_L(ptr)  *(uint32_t*)((ptr) + 3) << 24 | \
+#define GetLongL(ptr)  *(uint32_t*)((ptr) + 3) << 24 | \
                         *(uint32_t*)((ptr) + 2) << 16 | \
                         *(uint32_t*)((ptr) + 1) << 8  | \
                         *(uint32_t*)(ptr)
 
-#define GETWORD_H(ptr)  *(uint16_t*)(ptr) << 8  | \
+#define GetWordH(ptr)  *(uint16_t*)(ptr) << 8  | \
                         *(uint16_t*)((ptr) + 1)
 
-#define GETWORD_L(ptr)  *(uint16_t*)((ptr) + 1) << 8  | \
+#define GetWordL(ptr)  *(uint16_t*)((ptr) + 1) << 8  | \
                         *(uint16_t*)(ptr)
 
-#define WRITE_MSG_LONG(ptr, value)  do {*(uint8_t *)(ptr)       = (value) >> 24; \
+// ptr is h
+#define WriteLongH(ptr, value)      do {*(uint8_t *)(ptr)       = (value) >> 24; \
                                         *(uint8_t *)((ptr) + 1) = (value) >> 16 & 0xff; \
                                         *(uint8_t *)((ptr) + 2) = (value) >> 8 & 0xff;  \
                                         *(uint8_t *)((ptr) + 3) = (value) & 0xff;       \
                                     } while (0)
-
-#define WRITE_MSG_WORD(ptr, value)  do {*(uint8_t *)(ptr)       = (value) >> 8; \
+// ptr is l
+#define WriteLongL(ptr, value)      do {*(uint8_t *)((ptr) + 3) = (value) >> 24; \
+                                        *(uint8_t *)((ptr) + 2) = (value) >> 16 & 0xff; \
+                                        *(uint8_t *)((ptr) + 1) = (value) >> 8 & 0xff;  \
+                                        *(uint8_t *)(ptr)       = (value) & 0xff;       \
+                                    } while (0)
+// ptr is h
+#define WriteWordH(ptr, value)      do {*(uint8_t *)(ptr)       = (value) >> 8; \
                                         *(uint8_t *)((ptr) + 1) = (value);      \
+                                    } while (0)
+// ptr is l
+#define WriteWordL(ptr, value)      do {*(uint8_t *)((ptr) + 1) = (value) >> 8; \
+                                        *(uint8_t *)(ptr)       = (value);      \
                                     } while (0)
 
 

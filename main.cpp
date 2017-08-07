@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
             perror("no response to check status\n");
             goto PROGRAM_FAIL;
         }
-        if (frame_rx.data[0] == 0x00) {
+        if (frame_rx.data[0] == 0xa5) {
             printf("cb is in bootloader\n");
             break;
         }else
@@ -171,6 +171,13 @@ int main(int argc, char *argv[])
         if (ret > 0 &&
                 ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
                 ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_ASK_APPAREA) {
+            for (i = 0; i < 8; i++)
+                printf("%x  ", *(&frame_rx.data[0] + i));
+            printf("\n");
+            printf("%x  ", *(&frame_rx.data[0]) << 24);
+            printf("%x  ", *(&frame_rx.data[0] + 1) << 16);
+            printf("%x  ", *(&frame_rx.data[0] + 2) << 8);
+            printf("\n");
             flash_start = GetLongH(frame_rx.data);
             flash_end = GetLongH(&frame_rx.data[4]);
             printf("flash start address: %x, end address: %x\n", flash_start, flash_end);
@@ -188,12 +195,12 @@ int main(int argc, char *argv[])
     do {
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
         printf("send %d bytes to unlock flash\n", ret);
-        if (CAN_RecvFrame(fd_can, &frame_rx, 500) > 0) {
-            if (((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
-                    ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_PROGRAM_START &&
-                    frame_rx.data[0] == 0x00)
-                break;
-        }else {
+        if (CAN_RecvFrame(fd_can, &frame_rx, 5000) > 0 &&
+                ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
+                ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_PROGRAM_START &&
+                frame_rx.data[0] == 0x00)
+            break;
+        else {
             i++;
             usleep(5000);
         }
@@ -237,6 +244,10 @@ int main(int argc, char *argv[])
         switch(type) {
         case 0x00:
             // send start address and data length first
+            if (address < flash_start || address > flash_end) {
+                printf("exceed app flash area, wrong hex file\n");
+                goto PROGRAM_FAIL;
+            }
             WRITE_ID_CMD(can_id, CMD_DLD);
             WriteLongH(wdata, address);
             WriteLongH(wdata + 4, length);
@@ -317,6 +328,8 @@ int main(int argc, char *argv[])
                         ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_JUMPTOAPP &&
                         frame_rx.data[0] == 0x00) {
                     printf("cb is jumping to application...\n");
+                }else {
+                    printf("target fail to jump to app\n");
                 }
             }else {
                 perror("fail to send command to jump to app\n");
@@ -334,10 +347,11 @@ int main(int argc, char *argv[])
             addr_l = atoi(wdata);
             base_addr = ((addr_h << 8) + addr_l) << 16;
             printf("base_address is %x\n", base_addr);
-            if (base_addr != flash_start) {
-                printf("wrong hex file\n");
-                goto PROGRAM_FAIL;
-            }
+            // todo compare with 0x0800 0000
+//            if (base_addr < flash_start || base_addr > flash_end) {
+//                printf("wrong hex file\n");
+//                goto PROGRAM_FAIL;
+//            }
             break;
         case 0x05:
             break;

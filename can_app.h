@@ -20,21 +20,21 @@
 #define CMD_PROGRAM_START   0xae
 #define CMD_PROGRAM_END     0xaf
 
-#define GetLongH(ptr)  *(uint32_t*)(ptr)       << 24 | \
-                        *(uint32_t*)((ptr) + 1) << 16 | \
-                        *(uint32_t*)((ptr) + 2) << 8  | \
-                        *(uint32_t*)((ptr) + 3)
+#define GetLongH(ptr)   (uint32_t)*(uint8_t *)(ptr) << 24 | \
+                        (uint32_t)*((uint8_t *)(ptr) + 1) << 16 | \
+                        (uint32_t)*((uint8_t *)(ptr) + 2) << 8  | \
+                        (uint32_t)*((uint8_t *)(ptr) + 3)
 
-#define GetLongL(ptr)  *(uint32_t*)((ptr) + 3) << 24 | \
-                        *(uint32_t*)((ptr) + 2) << 16 | \
-                        *(uint32_t*)((ptr) + 1) << 8  | \
-                        *(uint32_t*)(ptr)
+#define GetLongL(ptr)   (uint32_t)*((uint8_t *)(ptr) + 3) << 24 | \
+                        (uint32_t)*((uint8_t *)(ptr) + 2) << 16 | \
+                        (uint32_t)*((uint8_t *)(ptr) + 1) << 8  | \
+                        (uint32_t)*(ptr)
 
-#define GetWordH(ptr)  *(uint16_t*)(ptr) << 8  | \
-                        *(uint16_t*)((ptr) + 1)
+#define GetWordH(ptr)   (uint16_t)*(uint8_t *)(ptr) << 8  | \
+                        (uint16_t)*((uint8_t *)(ptr) + 1)
 
-#define GetWordL(ptr)  *(uint16_t*)((ptr) + 1) << 8  | \
-                        *(uint16_t*)(ptr)
+#define GetWordL(ptr)   *((uint8_t *)(ptr) + 1) << 8  | \
+                        *(uint8_t *)(ptr)
 
 // ptr is h
 #define WriteLongH(ptr, value)      do {*(uint8_t *)(ptr)       = (value) >> 24; \

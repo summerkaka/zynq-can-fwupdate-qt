@@ -85,7 +85,7 @@ int CAN_SendFrame(int fd, uint32_t id, const uint8_t *pdata, uint8_t length, uin
     memcpy(&frame.data[0], pdata, length);
     frame.can_dlc = length;
     ret = WaitTxAvailable(fd, timeout_ms * 1000);
-    usleep(5000);       // for slow response usb-can adaptor to capture packet
+//    usleep(5000);       // for slow response usb-can adaptor to capture packet
     if(ret <= 0) {
         printf("CAN_Send() wait-available error\n");
         return -1;

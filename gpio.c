@@ -52,10 +52,10 @@ void Gpio_Init(void)
  * @return 0 if success
  * @return negativ if failed
  */
-int Gpio_Pin_Config(int num, char *direction, bool init_value)
+int Gpio_Pin_Config(int num, int base, char *direction, bool init_value)
 {
     char buf[PATH_BUF_SIZE] = {0};
-    int fd = 0, ret = 0, index = num + 906;
+    int fd = 0, ret = 0, index = num + base;
 #if USE_QTGUI
     QMessageBox msg;
 #endif
@@ -119,10 +119,10 @@ int Gpio_Pin_Config(int num, char *direction, bool init_value)
     return ret;
 }
 
-int Gpio_Pin_DeConfig(int num)
+int Gpio_Pin_DeConfig(int num, int base)
 {
     char buf[PATH_BUF_SIZE] = {0};
-    int fd = 0, ret = 0, index = num + 906;
+    int fd = 0, ret = 0, index = num + base;
 #if USE_QTGUI
     QMessageBox msg;
 #endif

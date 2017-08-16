@@ -38,6 +38,9 @@ extern "C" {
 //#include <QMessageBox>
 
 #define USE_QTGUI  0
+#define ZC702
+//#define HMBIRD_MB
+
 
 #ifdef __cplusplus
 }

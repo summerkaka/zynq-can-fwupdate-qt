@@ -48,16 +48,20 @@ static int WaitTxAvailable(int fd, uint32_t wait_useconds)
 
 static int Phy_Init(void)
 {
-    if (Gpio_Pin_Config(9, "out", 0) < 0) {
+#if defined ZC702
+    if (Gpio_Pin_Config(9, 906, "out", 0) < 0) {
         perror("fail to config CAN phy\n");
         return -1;
     }
     usleep(5000);
-    if (Gpio_Pin_DeConfig(9)) {
+    if (Gpio_Pin_DeConfig(9, 906)) {
         perror("fail to deconfig CAN phy\n");
         return -1;
     }
     return 0;
+#elif defined HMBIRD_MB
+
+#endif
 }
 
 /**

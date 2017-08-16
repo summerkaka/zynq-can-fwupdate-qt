@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
     do {
         WRITE_ID_CMD(can_id, CMD_PING);
         if (CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 0, 5) > 0)
-            printf("send request to cb status\n");
+            printf("send request to check cb status\n");
         else {
             perror("fail to check cb status\n");
             goto PROGRAM_FAIL;
@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
     i = 0;
     do {
         ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)wdata, 2, 5);
-        printf("send %d bytes to unlock flash\n", ret);
+        printf("send %d bytes to unlock and erase flash\n", ret);
         if (CAN_RecvFrame(fd_can, &frame_rx, 5000) > 0 &&
                 ((stCanId*)&frame_rx.can_id)->Target == CANID_MB &&
                 ((stCanId*)&frame_rx.can_id)->CmdNum == CMD_PROGRAM_START &&
@@ -269,8 +269,10 @@ int main(int argc, char *argv[])
             // send data
             WRITE_ID_CMD(can_id, CMD_SENDDATA);
             for (i = 0; i < length; i++) {
-                wdata[i] = ASC2Hex(buffer + 2*i + 9);
+//                wdata[i] = ASC2Hex(buffer + 2*i + 9);
+                sscanf(&buffer[9] + 2*i, "%2x", (uint32_t*)&wdata[i]);
             }
+
             for (i = 0; i < length; ) {
                 send_dlc = (length - i >= 8) ? 8 : length - i;
                     ret = CAN_SendFrame(fd_can, can_id, (const uint8_t *)&wdata[i], send_dlc, 5);

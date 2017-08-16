@@ -34,7 +34,7 @@ extern stGpio gpio0_16;
 
 void Gpio_Init(void);
 int Gpio_Write(int, bool);
-int Gpio_Pin_Config(int num, char *direction, bool init_value);
-int Gpio_Pin_DeConfig(int num);
+int Gpio_Pin_Config(int num, int base, char *direction, bool init_value);
+int Gpio_Pin_DeConfig(int num, int base);
 
 #endif // GPIO_H
